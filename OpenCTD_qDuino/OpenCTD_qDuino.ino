@@ -1,9 +1,3 @@
-//Wire and MS5803_I2C libraries for communicating with the pressure sensor. 
-
-#include <Wire.h>               
-#include <SparkFun_MS5803_I2C.h>                                                                   
-#include <SparkFun_MS5803_I2C.h> //CAN WE MAKE THIS LIBRARY SMALLER?
-
 //EC Circuit uses software serial
 #include <SoftwareSerial.h>     // For use by EC circuit.
 
@@ -15,7 +9,15 @@
 
 // For the SD card reader.
 #include <SPI.h>               
-#include <SD.h>                
+#include <SD.h>           
+
+//Wire and MS5803_I2C libraries for communicating with the pressure sensor. 
+
+#include <Wire.h>               
+#include <SparkFun_MS5803_I2C.h> 
+#include <Qduino.h>      
+
+qduino q;
 
 // Declare global variables.
 float tempA;
@@ -30,38 +32,46 @@ char *EC;            // Character pointer for string parsing.
 byte received_from_sensor = 0;  // How many characters have been received.
 byte string_received = 0;       // Whether it received a string from the EC circuit.
 
+double pressure_abs; //define absolute pressure variable
+
 SoftwareSerial ecSerial(8, 9);      // Define the SoftwareSerial port for conductivity.
 OneWire oneWire(6);        // Define the OneWire port for temperature.
 DallasTemperature sensors(&oneWire);  // Define DallasTemperature input based on OneWire.
 MS5803 sensor(ADDRESS_HIGH);          // Define pressure sensor.
 
-double pressure_abs; //define absolute pressure variable
-
 // Starts it up.
 //
-void setup(void) {
+void setup() {
 
   Serial.begin(9600);   // Set baud rate.
   ecSerial.begin(9600); // Set baud rate for conductivty circuit.
 
   pinMode(10, OUTPUT);  // Set data output pin for the SD card reader.
-  
-  // Test to see if the SD card reader is functioning.
-  if (!SD.begin(4)) {
-    Serial.println("Card failed");  // Log to serial monitor if SD card doesn't work.
-    return; 
-  }
+  pinMode(4, OUTPUT);   // Set chip select pin for the SD card reader.  
+
+  delay(500);  // Wait half a second before continuing.
+  SD.begin(4); // Initialize SD card
   delay(500);  // Wait half a second before continuing.
   
   sensor.reset(); //reset pressure sensor 
   sensor.begin(); //initialize pressure sensor
+  
   sensors.begin();  // Intialize the temperature sensors.
   
   delay(250);       // Wait a quarter second to continue.
 
+  // Indicate start of sampling
+  File dataStart = SD.open("datalog.txt", FILE_WRITE);
+  if (dataStart) {
+    dataStart.println("SAMPLE");
+    dataStart.close();
+  }
+
+  q.setup();    // set up user led on qduino
+
 }
 
-void loop(void) {
+void loop() {
 
   // Read any pending data from the EC circuit.
   if (ecSerial.available() > 0) {
@@ -78,6 +88,9 @@ void loop(void) {
 
   delay(10);  // Wait 10 milliseconds.
 
+  // Read pressure sensor
+  pressure_abs = sensor.getPressure(ADC_4096);
+
   // Read temperature sensors.
   sensors.requestTemperatures();
   tempA = sensors.getTempCByIndex(0);
@@ -87,7 +100,7 @@ void loop(void) {
   // Log to the SD card...
   File dataFile = SD.open("datalog.txt", FILE_WRITE);
   if (dataFile) {
-    dataFile.print(sensor.getPressure(ADC_4096));
+    dataFile.print(pressure_abs);
     dataFile.print("  ");
     dataFile.print(tempA);
     dataFile.print("  ");
@@ -97,13 +110,15 @@ void loop(void) {
     dataFile.print("  ");
     dataFile.println(EC);
     dataFile.close();
+    q.setRGB(0,64,0);  // set user rgb to green
   }
   else {
-
+    Serial.println("error writing to file");  
+    q.setRGB(64,0,0);   // set user rgb to red
   }
 
   // Log to the serial monitor.
-  Serial.print(sensor.getPressure(ADC_4096));
+  Serial.print(pressure_abs);
   Serial.print("  "); 
   Serial.print(tempA);
   Serial.print("  ");
